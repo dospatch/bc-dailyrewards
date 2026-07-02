@@ -1,0 +1,65 @@
+local isOpen = false
+local requestId = 0
+local pending = {}
+
+RegisterNetEvent('bc-dailyrewards:callbackResponse')
+AddEventHandler('bc-dailyrewards:callbackResponse', function(id, ...)
+    if pending[id] then
+        pending[id](...)
+        pending[id] = nil
+    end
+end)
+
+local function TriggerCallback(name, cb, ...)
+    requestId = requestId + 1
+    local id = requestId
+    pending[id] = cb
+    TriggerServerEvent('bc-dailyrewards:triggerCallback', name, id, ...)
+end
+
+local function CloseMenu()
+    if not isOpen then return end
+    isOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'close' })
+end
+
+local function OpenMenu()
+    if isOpen then return end
+    TriggerCallback('bc-dailyrewards:getStatus', function(status)
+        if not status or not status.success then
+            return CloseMenu()
+        end
+        isOpen = true
+        SetNuiFocus(true, true)
+        SendNUIMessage({ action = 'open', status = status })
+    end)
+end
+
+RegisterCommand(Config.Command, function()
+    if isOpen then CloseMenu() else OpenMenu() end
+end, false)
+
+RegisterKeyMapping(Config.Command, 'Open Daily Rewards Menu', 'keyboard', Config.OpenKey)
+
+RegisterNUICallback('claim', function(_, cb)
+    TriggerCallback('bc-dailyrewards:claim', function(result)
+        cb(result)
+    end)
+end)
+
+RegisterNUICallback('close', function(_, cb)
+    CloseMenu()
+    cb({})
+end)
+
+if Config.OpenOnJoin then
+    CreateThread(function()
+        Wait(5000)
+        TriggerCallback('bc-dailyrewards:getStatus', function(status)
+            if status and status.success and status.canClaim then
+                OpenMenu()
+            end
+        end)
+    end)
+end
